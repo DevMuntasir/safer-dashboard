@@ -1,0 +1,363 @@
+package com.remoteguard.app
+
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
+import com.remoteguard.app.ui.theme.RemoteGuardTheme
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        FirebaseHelper.initialize(this)
+        requestIgnoreBatteryOptimizationsIfNeeded()
+        startService()
+        
+        val startDest = if (hasAllPermissions()) "status" else "onboarding"
+
+        setContent {
+            RemoteGuardTheme {
+                val navController = rememberNavController()
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    NavHost(navController = navController, startDestination = startDest) {
+                        composable("onboarding") {
+                            OnboardingScreen {
+                                navController.navigate("status") {
+                                    popUpTo("onboarding") { inclusive = true }
+                                }
+                                startService()
+                            }
+                        }
+                        composable("status") {
+                            StatusScreen(
+                                onOpenChat = { navController.navigate("chat") }
+                            )
+                        }
+                        composable("chat") {
+                            ChatScreen()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun hasAllPermissions(): Boolean {
+        val permissions = mutableListOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+
+        val basicGranted = permissions.all {
+            ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        val manageStorageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+
+        return basicGranted && manageStorageGranted
+    }
+
+    private fun startService() {
+        val intent = Intent(this, RemoteGuardService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun requestIgnoreBatteryOptimizationsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val powerManager = getSystemService(PowerManager::class.java)
+        if (powerManager?.isIgnoringBatteryOptimizations(packageName) == true) return
+
+        val intent = Intent(
+            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:$packageName")
+        )
+        runCatching { startActivity(intent) }
+    }
+}
+
+@Composable
+fun OnboardingScreen(onComplete: () -> Unit) {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions: Map<String, Boolean> ->
+        val allGranted = permissions.values.all { it }
+        if (allGranted) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    context.startActivity(intent)
+                }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(100.dp)
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Text(
+            "Security Setup", 
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            "To protect your device, we need a few permissions.",
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            color = Color.Gray
+        )
+        Spacer(modifier = Modifier.height(48.dp))
+        
+        Button(
+            onClick = {
+                val permissions = mutableListOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+                    permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+                launcher.launch(permissions.toTypedArray())
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Grant Required Permissions", modifier = Modifier.padding(8.dp))
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        TextButton(onClick = onComplete) {
+            Text("Already granted? Start Protection")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatScreen() {
+    val context = LocalContext.current
+    val deviceId = remember { FirebaseHelper.getDeviceId(context) }
+    var messageText by remember { mutableStateOf("") }
+    val messages = remember { mutableStateListOf<ChatMessage>() }
+
+    LaunchedEffect(Unit) {
+        val ref = FirebaseHelper.getMessagesRef(context)
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                messages.clear()
+                for (child in snapshot.children) {
+                    val msg = child.getValue(ChatMessage::class.java)
+                    if (msg != null) {
+                        messages.add(msg)
+                    }
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        ref.addValueEventListener(listener)
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("Safe Chat - $deviceId", fontSize = 18.sp) },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f).padding(8.dp),
+            reverseLayout = false
+        ) {
+            items(messages) { msg ->
+                val isMe = msg.senderId == deviceId
+                ChatBubble(msg, isMe)
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = messageText,
+                onValueChange = { messageText = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Type a message...") },
+                maxLines = 3
+            )
+            IconButton(onClick = {
+                if (messageText.isNotBlank()) {
+                    FirebaseHelper.sendMessage(context, messageText)
+                    messageText = ""
+                }
+            }) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubble(message: ChatMessage, isMe: Boolean) {
+    val alignment = if (isMe) Alignment.CenterEnd else Alignment.CenterStart
+    val bubbleColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+    val textColor = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+
+    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = alignment) {
+        Column(
+            horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+        ) {
+            Surface(
+                color = bubbleColor,
+                shape = RoundedCornerShape(
+                    topStart = 12.dp,
+                    topEnd = 12.dp,
+                    bottomStart = if (isMe) 12.dp else 0.dp,
+                    bottomEnd = if (isMe) 0.dp else 12.dp
+                )
+            ) {
+                Text(
+                    text = message.text,
+                    modifier = Modifier.padding(12.dp),
+                    color = textColor
+                )
+            }
+            Text(
+                text = if (isMe) "Me" else "Remote",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                color = Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
+fun StatusScreen(onOpenChat: () -> Unit) {
+    val context = LocalContext.current
+    val deviceId = remember { FirebaseHelper.getDeviceId(context) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Security,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(120.dp)
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Your device is protected now",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Safer is active to protect you.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray
+        )
+        
+        Spacer(modifier = Modifier.height(40.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Your ID", style = MaterialTheme.typography.labelLarge)
+                Text(deviceId, style = MaterialTheme.typography.displayMedium, letterSpacing = 4.sp)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        OutlinedButton(
+            onClick = onOpenChat,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Open Secure Chat")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Enter this ID in the web dashboard to access this phone.",
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
+}

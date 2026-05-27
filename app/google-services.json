@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "496485627428",
+    "project_id": "apk-remote-32962",
+    "storage_bucket": "apk-remote-32962.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:496485627428:android:2e1e7031654f8a4a144ab1",
+        "android_client_info": {
+          "package_name": "com.remoteguard.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbi9THmJk_QmUoAHPtzUGbLkhrr_TgYW0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

