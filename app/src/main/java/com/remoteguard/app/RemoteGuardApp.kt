@@ -7,8 +7,12 @@ import com.google.firebase.database.FirebaseDatabase
 class RemoteGuardApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        runCatching { FirebaseDatabase.getInstance().setPersistenceEnabled(true) }
-        Log.d("RemoteGuardApp", "Application onCreate - Initializing Firebase and Cloudinary")
-        FirebaseHelper.initialize(this)
+        try {
+            runCatching { FirebaseDatabase.getInstance().setPersistenceEnabled(true) }
+            Log.d("RemoteGuardApp", "Application onCreate - Initializing Firebase and Cloudinary")
+            FirebaseHelper.initialize(this)
+        } catch (e: Exception) {
+            Log.e("RemoteGuardApp", "Failed to initialize Firebase: ${e.message}", e)
+        }
     }
 }

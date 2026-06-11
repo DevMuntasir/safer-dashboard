@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -41,67 +42,99 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        FirebaseHelper.initialize(this)
-        requestIgnoreBatteryOptimizationsIfNeeded()
-        startService()
-        
-        val startDest = if (hasAllPermissions()) "status" else "onboarding"
+        try {
+            Log.d("MainActivity", "onCreate: Starting")
+            requestIgnoreBatteryOptimizationsIfNeeded()
+            Log.d("MainActivity", "onCreate: Battery optimization requested")
 
-        setContent {
-            RemoteGuardTheme {
-                val navController = rememberNavController()
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    NavHost(navController = navController, startDestination = startDest) {
-                        composable("onboarding") {
-                            OnboardingScreen {
-                                navController.navigate("status") {
-                                    popUpTo("onboarding") { inclusive = true }
+            try {
+                startService()
+                Log.d("MainActivity", "onCreate: Service started")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "onCreate: Error starting service", e)
+            }
+
+            try {
+                UpdateManager.checkForUpdates(this)
+                Log.d("MainActivity", "onCreate: Update check started")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "onCreate: Error checking updates", e)
+            }
+
+            val startDest = if (hasAllPermissions()) "status" else "onboarding"
+            Log.d("MainActivity", "onCreate: Start destination = $startDest")
+
+            setContent {
+                try {
+                    RemoteGuardTheme {
+                        val navController = rememberNavController()
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            NavHost(navController = navController, startDestination = startDest) {
+                                composable("onboarding") {
+                                    OnboardingScreen {
+                                        navController.navigate("status") {
+                                            popUpTo("onboarding") { inclusive = true }
+                                        }
+                                        startService()
+                                    }
                                 }
-                                startService()
+                                composable("status") {
+                                    StatusScreen(
+                                        onOpenChat = { navController.navigate("chat") }
+                                    )
+                                }
+                                composable("chat") {
+                                    ChatScreen()
+                                }
                             }
                         }
-                        composable("status") {
-                            StatusScreen(
-                                onOpenChat = { navController.navigate("chat") }
-                            )
-                        }
-                        composable("chat") {
-                            ChatScreen()
-                        }
                     }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "setContent Error", e)
+                    throw e
                 }
             }
+            Log.d("MainActivity", "onCreate: Completed successfully")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "onCreate: Fatal error", e)
+            e.printStackTrace()
         }
     }
 
     private fun hasAllPermissions(): Boolean {
-        val permissions = mutableListOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
-            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
+        return try {
+            val permissions = mutableListOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+                permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
 
-        val basicGranted = permissions.all {
-            ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
+            val basicGranted = permissions.all {
+                ContextCompat.checkSelfPermission(this, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
 
-        val manageStorageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            true
-        }
+            val manageStorageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                true
+            }
 
-        return basicGranted && manageStorageGranted
+            basicGranted && manageStorageGranted
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error checking permissions", e)
+            false
+        }
     }
 
     private fun startService() {
@@ -172,6 +205,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             onClick = {
                 val permissions = mutableListOf(
                     Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO,
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION
                 )
@@ -324,40 +358,19 @@ fun StatusScreen(onOpenChat: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Safer is active to protect you.",
+            text = "Device ID: $deviceId",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.Gray
         )
-        
+
         Spacer(modifier = Modifier.height(40.dp))
-        
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Your ID", style = MaterialTheme.typography.labelLarge)
-                Text(deviceId, style = MaterialTheme.typography.displayMedium, letterSpacing = 4.sp)
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        OutlinedButton(
+
+        Button(
             onClick = onOpenChat,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Open Secure Chat")
+            Text("Open Chat", modifier = Modifier.padding(8.dp))
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Enter this ID in the web dashboard to access this phone.",
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
     }
 }
