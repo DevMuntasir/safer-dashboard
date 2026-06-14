@@ -1,11 +1,15 @@
 package com.remoteguard.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
@@ -25,15 +29,28 @@ class CameraManager(private val context: Context) {
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var isStreaming = false
     private var lastFrameTime = 0L
+    private var cameraProvider: ProcessCameraProvider? = null
+
+    private fun checkCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
 
     fun takePhoto(lifecycleOwner: LifecycleOwner) {
+        if (!checkCameraPermission()) {
+            Log.e("CameraManager", "Camera permission not granted")
+            return
+        }
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            val imageCapture = ImageCapture.Builder().build()
-            val cameraSelector = currentCameraSelector
-
             try {
+                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+                val imageCapture = ImageCapture.Builder().build()
+                val cameraSelector = currentCameraSelector
+
                 cameraProvider.unbindAll()
                 if (isStreaming) {
                     val analysis = imageAnalysis ?: setupAnalysis(lifecycleOwner)
@@ -41,44 +58,53 @@ class CameraManager(private val context: Context) {
                 } else {
                     cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture)
                 }
-                
+
                 imageCapture.takePicture(cameraExecutor, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
                         val bytes = extractJpegBytes(image)
                         if (bytes != null) {
+                            Log.d("CameraManager", "Photo captured: ${bytes.size} bytes")
                             FirebaseHelper.uploadPhoto(context, bytes)
                         }
                         image.close()
                     }
 
                     override fun onError(exception: ImageCaptureException) {
-                        exception.printStackTrace()
+                        Log.e("CameraManager", "Photo capture error: ${exception.message}", exception)
                     }
                 })
             } catch (exc: Exception) {
-                exc.printStackTrace()
+                Log.e("CameraManager", "takePhoto error: ${exc.message}", exc)
             }
         }, ContextCompat.getMainExecutor(context))
     }
 
     fun startVideoRecording(lifecycleOwner: LifecycleOwner) {
-        if (recording != null) return
+        if (recording != null) {
+            Log.w("CameraManager", "Video recording already in progress")
+            return
+        }
+
+        if (!checkCameraPermission()) {
+            Log.e("CameraManager", "Camera permission not granted for video recording")
+            return
+        }
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            val cameraSelector = currentCameraSelector
-
-            val qualitySelector = QualitySelector.fromOrderedList(
-                listOf(Quality.SD, Quality.HD, Quality.LOWEST),
-                FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
-            )
-            val recorder = Recorder.Builder()
-                .setQualitySelector(qualitySelector)
-                .build()
-            videoCapture = VideoCapture.withOutput(recorder)
-
             try {
+                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+                val cameraSelector = currentCameraSelector
+
+                val qualitySelector = QualitySelector.fromOrderedList(
+                    listOf(Quality.SD, Quality.HD, Quality.LOWEST),
+                    FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
+                )
+                val recorder = Recorder.Builder()
+                    .setQualitySelector(qualitySelector)
+                    .build()
+                videoCapture = VideoCapture.withOutput(recorder)
+
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, videoCapture)
 
@@ -91,47 +117,71 @@ class CameraManager(private val context: Context) {
                         if (event is VideoRecordEvent.Finalize) {
                             recording = null
                             if (!event.hasError()) {
+                                Log.d("CameraManager", "Video recording completed: ${videoFile.name}")
                                 FirebaseHelper.uploadVideo(context, videoFile)
                             } else {
+                                Log.e("CameraManager", "Video recording failed: ${event.error}")
                                 videoFile.delete()
                             }
                         }
                     }
+                Log.d("CameraManager", "Video recording started")
             } catch (exc: Exception) {
-                exc.printStackTrace()
+                Log.e("CameraManager", "startVideoRecording error: ${exc.message}", exc)
             }
         }, ContextCompat.getMainExecutor(context))
     }
 
     fun stopVideoRecording() {
         val currentRecording = recording ?: return
-        currentRecording.stop()
-        recording = null
-        
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            cameraProvider.unbindAll()
-            videoCapture = null
-        }, ContextCompat.getMainExecutor(context))
+        try {
+            currentRecording.stop()
+            recording = null
+            Log.d("CameraManager", "Video recording stopped")
+
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+            cameraProviderFuture.addListener({
+                try {
+                    val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+                    cameraProvider.unbindAll()
+                    videoCapture = null
+                } catch (exc: Exception) {
+                    Log.e("CameraManager", "Error unbinding camera: ${exc.message}", exc)
+                }
+            }, ContextCompat.getMainExecutor(context))
+        } catch (exc: Exception) {
+            Log.e("CameraManager", "stopVideoRecording error: ${exc.message}", exc)
+        }
     }
 
     fun startStreaming(lifecycleOwner: LifecycleOwner) {
-        if (isStreaming) return
+        if (isStreaming) {
+            Log.w("CameraManager", "Streaming already in progress")
+            return
+        }
+
+        if (!checkCameraPermission()) {
+            Log.e("CameraManager", "Camera permission not granted for streaming")
+            return
+        }
+
         isStreaming = true
-        
+        Log.d("CameraManager", "Starting camera stream")
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            val cameraSelector = currentCameraSelector
-            
-            imageAnalysis = setupAnalysis(lifecycleOwner)
-
             try {
+                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+                val cameraSelector = currentCameraSelector
+
+                imageAnalysis = setupAnalysis(lifecycleOwner)
+
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageAnalysis)
+                Log.d("CameraManager", "Camera stream started successfully")
             } catch (exc: Exception) {
-                exc.printStackTrace()
+                isStreaming = false
+                Log.e("CameraManager", "startStreaming error: ${exc.message}", exc)
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -158,35 +208,48 @@ class CameraManager(private val context: Context) {
 
     fun stopStreaming() {
         isStreaming = false
+        Log.d("CameraManager", "Stopping camera stream")
+
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-            cameraProvider.unbindAll()
+            try {
+                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+                cameraProvider.unbindAll()
+                imageAnalysis = null
+                Log.d("CameraManager", "Camera stream stopped")
+            } catch (exc: Exception) {
+                Log.e("CameraManager", "stopStreaming error: ${exc.message}", exc)
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 
     fun switchCamera(lifecycleOwner: LifecycleOwner) {
-        currentCameraSelector = if (currentCameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
+        if (!checkCameraPermission()) {
+            Log.e("CameraManager", "Camera permission not granted for switching")
+            return
+        }
+
+        val newCamera = if (currentCameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
         }
 
+        currentCameraSelector = newCamera
+        Log.d("CameraManager", "Switching camera to: ${getCurrentCameraName()}")
+
         if (isStreaming) {
-            // Restart stream with new camera
             stopStreaming()
-            // Short delay to ensure unbind completes before re-binding
             Handler(Looper.getMainLooper()).postDelayed({
                 startStreaming(lifecycleOwner)
             }, 500)
         }
 
         if (recording != null) {
-            // Restart video recording with new camera
             stopVideoRecording()
             Handler(Looper.getMainLooper()).postDelayed({
                 startVideoRecording(lifecycleOwner)
-            }, 1000) // Slightly longer delay for video capture unbinding
+            }, 1000)
         }
     }
 

