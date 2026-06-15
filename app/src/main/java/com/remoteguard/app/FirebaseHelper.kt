@@ -112,6 +112,15 @@ object FirebaseHelper {
         }
     }
 
+    fun ensureDatabaseOnline() {
+        try {
+            database.goOnline()
+            Log.d("FirebaseHelper", "Firebase database ensured to be online")
+        } catch (e: Exception) {
+            Log.e("FirebaseHelper", "Error ensuring database is online: ${e.message}", e)
+        }
+    }
+
     @Synchronized
     private fun ensureCloudinaryReady(context: Context): Boolean {
         if (isCloudinaryReady) return true

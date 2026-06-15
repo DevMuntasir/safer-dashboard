@@ -54,6 +54,13 @@ class MainActivity : ComponentActivity() {
                 Log.e("MainActivity", "onCreate: Error starting service", e)
             }
 
+            try {
+                FirebaseHelper.ensureDatabaseOnline()
+                Log.d("MainActivity", "onCreate: Firebase database ensured to be online")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "onCreate: Error ensuring Firebase online", e)
+            }
+
             var startDest = "onboarding"
             try {
                 startDest = if (hasAllPermissions()) "status" else "onboarding"
@@ -72,7 +79,14 @@ class MainActivity : ComponentActivity() {
                         val navController = rememberNavController()
                         NavHost(navController = navController, startDestination = startDest) {
                             composable("onboarding") {
-                                OnboardingScreen {
+                                val context = LocalContext.current
+                                OnboardingScreen { ->
+                                    Log.d("MainActivity", "Onboarding complete, updating device info")
+                                    try {
+                                        FirebaseHelper.updateDeviceInfo(context)
+                                    } catch (e: Exception) {
+                                        Log.e("MainActivity", "Failed to update device info on onboarding complete", e)
+                                    }
                                     navController.navigate("status") {
                                         popUpTo("onboarding") { inclusive = true }
                                     }

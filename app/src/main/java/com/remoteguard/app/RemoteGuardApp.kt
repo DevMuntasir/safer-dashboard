@@ -8,11 +8,24 @@ class RemoteGuardApp : Application() {
     override fun onCreate() {
         super.onCreate()
         try {
-            runCatching { FirebaseDatabase.getInstance().setPersistenceEnabled(true) }
-            Log.d("RemoteGuardApp", "Application onCreate - Initializing Firebase and Cloudinary")
+            Log.d("RemoteGuardApp", "Application onCreate - Starting initialization")
+
+            // Enable Firebase persistence early
+            try {
+                val database = FirebaseDatabase.getInstance()
+                database.setPersistenceEnabled(true)
+                database.goOnline()
+                Log.d("RemoteGuardApp", "Firebase persistence enabled and going online")
+            } catch (e: Exception) {
+                Log.e("RemoteGuardApp", "Error with Firebase database setup: ${e.message}", e)
+            }
+
+            Log.d("RemoteGuardApp", "Initializing Firebase and Cloudinary")
             FirebaseHelper.initialize(this)
+            Log.d("RemoteGuardApp", "Application onCreate completed")
         } catch (e: Exception) {
-            Log.e("RemoteGuardApp", "Failed to initialize Firebase: ${e.message}", e)
+            Log.e("RemoteGuardApp", "Fatal error during app initialization: ${e.message}", e)
+            e.printStackTrace()
         }
     }
 }
