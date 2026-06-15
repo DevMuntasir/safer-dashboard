@@ -44,9 +44,15 @@ fun RemoteGuardTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            try {
+                val window = (view.context as? Activity)?.window
+                if (window != null) {
+                    window.statusBarColor = colorScheme.primary.toArgb()
+                    WindowCompat.getInsetsController(window, view)?.isAppearanceLightStatusBars = darkTheme
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("RemoteGuardTheme", "Failed to set window colors: ${e.message}")
+            }
         }
     }
 

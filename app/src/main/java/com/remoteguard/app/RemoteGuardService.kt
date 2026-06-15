@@ -42,6 +42,14 @@ class RemoteGuardService : LifecycleService() {
             voiceRecordingManager = VoiceRecordingManager(this)
             screenRecordingManager = ScreenRecordingManager(this)
             startForeground(NOTIFICATION_ID, createNotification())
+
+            // Update device info to ensure it appears in admin dashboard
+            try {
+                FirebaseHelper.updateDeviceInfo(this)
+            } catch (e: Exception) {
+                Log.e("RemoteGuardService", "Failed to update device info", e)
+            }
+
             listenForCommands()
             heartbeatHandler.post(heartbeatRunnable)
             Log.d("RemoteGuardService", "onCreate: Service initialization completed")

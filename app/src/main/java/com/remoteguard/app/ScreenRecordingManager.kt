@@ -91,7 +91,7 @@ class ScreenRecordingManager(private val context: Context) {
                     screenWidth,
                     screenHeight,
                     screenDensity,
-                    android.media.projection.MediaProjection.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                     recorderSurface,
                     null,
                     null

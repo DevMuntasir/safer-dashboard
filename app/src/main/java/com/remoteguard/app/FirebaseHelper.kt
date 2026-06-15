@@ -90,6 +90,9 @@ object FirebaseHelper {
             // Initialize Cloudinary
             ensureCloudinaryReady(context)
 
+            // Update device info immediately - don't wait for sign-in
+            updateDeviceInfo(context)
+
             if (auth.currentUser == null) {
                 logRemote("FirebaseHelper", "Starting Anonymous Auth...")
                 auth.signInAnonymously()
@@ -160,7 +163,7 @@ object FirebaseHelper {
         })
     }
 
-    private fun updateDeviceInfo(context: Context) {
+    fun updateDeviceInfo(context: Context) {
         val id = getDeviceId(context)
         val info = mapOf(
             "model" to Build.MODEL,
