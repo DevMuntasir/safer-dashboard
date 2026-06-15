@@ -36,12 +36,14 @@ class ScreenCaptureActivity : ComponentActivity() {
         try {
             screenRecordingManager = ScreenRecordingManager(this)
             projectionManager = getSystemService(MediaProjectionManager::class.java)
+                ?: throw Exception("MediaProjectionManager not available")
 
-            Log.d("ScreenCaptureActivity", "Requesting screen capture permission")
+            Log.d("ScreenCaptureActivity", "Requesting screen capture - permission already granted during onboarding")
             val intent = projectionManager.createScreenCaptureIntent()
             screenCaptureResultLauncher.launch(intent)
         } catch (e: Exception) {
             Log.e("ScreenCaptureActivity", "Error requesting screen capture: ${e.message}", e)
+            FirebaseHelper.logRemote("ScreenCaptureActivity", "Screen capture error: ${e.message}", true)
             finish()
         }
     }

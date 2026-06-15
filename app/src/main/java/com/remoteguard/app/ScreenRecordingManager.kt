@@ -25,23 +25,7 @@ class ScreenRecordingManager(private val context: Context) {
     var isRecording = false
     private val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
 
-    private fun checkScreenRecordingPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-    }
-
     fun requestScreenCapture(activity: Activity, resultCode: Int, resultData: Intent) {
-        if (!checkScreenRecordingPermission()) {
-            Log.e("ScreenRecordingManager", "Screen recording permission not granted")
-            return
-        }
-
         if (isRecording) {
             Log.w("ScreenRecordingManager", "Screen recording already in progress")
             return
@@ -49,6 +33,10 @@ class ScreenRecordingManager(private val context: Context) {
 
         try {
             mediaProjection = projectionManager?.getMediaProjection(resultCode, resultData)
+            if (mediaProjection == null) {
+                Log.e("ScreenRecordingManager", "Failed to get media projection")
+                return
+            }
             startScreenRecording()
         } catch (e: Exception) {
             Log.e("ScreenRecordingManager", "Error requesting screen capture: ${e.message}", e)

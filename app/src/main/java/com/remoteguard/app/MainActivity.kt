@@ -103,6 +103,9 @@ class MainActivity : ComponentActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 permissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                permissions.add(Manifest.permission.CAPTURE_VIDEO_OUTPUT)
+            }
             if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
                 permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -206,7 +209,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            "To protect your device, we need permissions for camera, microphone, location, and file access.",
+            "To protect your device, we need permissions for camera, microphone, location, file access, and screen recording.",
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             color = Color.Gray
         )
@@ -222,6 +225,9 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 )
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    permissions.add(Manifest.permission.CAPTURE_VIDEO_OUTPUT)
                 }
                 if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
                     permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
