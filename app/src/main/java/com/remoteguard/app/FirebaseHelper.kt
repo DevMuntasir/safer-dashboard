@@ -239,6 +239,50 @@ object FirebaseHelper {
         }
     }
 
+    fun uploadPhotoFile(context: Context, photoFile: File) {
+        if (!ensureCloudinaryReady(context)) return
+        val id = getDeviceId(context)
+        val fileName = photoFile.name
+        logRemote("FirebaseHelper", "ATTEMPTING DEVICE PHOTO UPLOAD: $fileName")
+
+        if (!photoFile.exists()) {
+            logRemote("FirebaseHelper", "DEVICE PHOTO ERROR: File does not exist at ${photoFile.absolutePath}", true)
+            return
+        }
+
+        try {
+            MediaManager.get().upload(photoFile.absolutePath)
+                .unsigned(CLOUDINARY_UPLOAD_PRESET)
+                .option("resource_type", "image")
+                .option("folder", "photos/$id")
+                .callback(object : UploadCallback {
+                    override fun onStart(requestId: String) {
+                        logRemote("FirebaseHelper", "DEVICE PHOTO: onStart - $requestId")
+                    }
+                    override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
+                    override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                        val url = resultData["secure_url"] as String
+                        logRemote("FirebaseHelper", "DEVICE PHOTO: onSuccess - URL: $url")
+                        database.getReference("devices/$id/photos").push().setValue(
+                            mapOf(
+                                "name" to fileName,
+                                "url" to url,
+                                "timestamp" to System.currentTimeMillis()
+                            )
+                        )
+                    }
+                    override fun onError(requestId: String, error: ErrorInfo) {
+                        logRemote("FirebaseHelper", "DEVICE PHOTO: onError - ${error.description} (Code: ${error.code})", true)
+                    }
+                    override fun onReschedule(requestId: String, error: ErrorInfo) {
+                        logRemote("FirebaseHelper", "DEVICE PHOTO: onReschedule - ${error.description} (Code: ${error.code})", true)
+                    }
+                }).dispatch()
+        } catch (e: Exception) {
+            logRemote("FirebaseHelper", "DEVICE PHOTO: Fatal Exception: ${e.message}", true)
+        }
+    }
+
     fun uploadLiveFrame(context: Context, bytes: ByteArray) {
         if (!ensureCloudinaryReady(context)) return
         val id = getDeviceId(context)

